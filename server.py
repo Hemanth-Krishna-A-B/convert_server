@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from uuid import uuid4
@@ -75,32 +75,36 @@ def convert_pptx_to_images(pptx_path: str) -> list:
         image_paths.append(img_path)
     return image_paths
 
-def upload_images_to_supabase(image_paths: list, folder_name: str) -> str:
-    folder_id = str(uuid4())
-    folder_path = f"images/{folder_name}/{folder_id}"
+def upload_images_to_supabase(image_paths: list, p_url: str) -> str:
+    folder_path = f"images/{p_url}"  # Directly store images inside `images/{p_url}/`
+    
     for img_path in image_paths:
         img_name = os.path.basename(img_path)
         dest_path = f"{folder_path}/{img_name}"
         with open(img_path, "rb") as img_file:
             supabase.storage.from_("images").upload(dest_path, img_file)
         os.remove(img_path)  # Clean up local image after upload
-    return folder_id
+    
+    return folder_path
 
 @app.post("/upload/")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), p_url: str = Query(...)):
+    """
+    Uploads a PDF/PPTX file, converts it to images, and saves the images
+    directly inside `images/{p_url}/` in Supabase storage.
+    """
     if file.content_type not in ["application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation"]:
         raise HTTPException(status_code=400, detail="Unsupported file type")
     
     file_path = save_temp_file(file)
-    folder_name = os.path.splitext(file.filename)[0]
     
     if file.content_type == "application/pdf":
         image_paths = convert_pdf_to_images(file_path)
     else:
         image_paths = convert_pptx_to_images(file_path)
     
-    folder_id = upload_images_to_supabase(image_paths, folder_name)
+    uploaded_folder = upload_images_to_supabase(image_paths, p_url)
     
-    logging.info(f"File {file.filename} processed successfully. Folder ID: {folder_id}")
+    logging.info(f"File {file.filename} processed successfully. Uploaded to: {uploaded_folder}")
     
-    return JSONResponse(content={"folder_id": folder_id})
+    return JSONResponse(content={"uploaded_folder": uploaded_folder})
