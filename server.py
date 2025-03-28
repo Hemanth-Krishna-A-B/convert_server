@@ -5,8 +5,7 @@ from uuid import uuid4
 import shutil
 import os
 from pdf2image import convert_from_path
-from pptx import Presentation
-from PIL import Image
+from pptx2pdf import convert as pptx_to_pdf
 from supabase import create_client
 from dotenv import load_dotenv
 import logging
@@ -36,7 +35,7 @@ app.add_middleware(
 )
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Set the upload directory
 UPLOAD_DIR = "uploads"
@@ -64,53 +63,52 @@ def convert_pdf_to_images(pdf_path: str) -> list:
     return image_paths
 
 def convert_pptx_to_images(pptx_path: str) -> list:
-    """Convert PPTX to images."""
+    """Convert PPTX to images by first converting it to PDF."""
     try:
-        prs = Presentation(pptx_path)
+        pdf_path = pptx_path.replace(".pptx", ".pdf")
+        pptx_to_pdf(pptx_path, pdf_path)  # Convert PPTX to PDF
+        return convert_pdf_to_images(pdf_path)  # Convert resulting PDF to images
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error converting PPTX to images: {e}")
-    
-    image_paths = []
-    for idx, slide in enumerate(prs.slides):
-        img = Image.new("RGB", (1280, 720), "white")  # Placeholder
-        img_path = f"{pptx_path}_{idx}.png"
-        img.save(img_path, "PNG")
-        image_paths.append(img_path)
-    return image_paths
 
-def upload_images_to_supabase(image_paths: list, folder_id: str) -> str:
-    """Upload images to Supabase bucket in `images/{id}/` format and return folder URL."""
+def upload_images_to_supabase(image_paths: list, folder_id: str) -> list:
+    """Upload images to Supabase and return a list of public URLs."""
     folder_path = f"images/{folder_id}/"
+    public_urls = []
     
     for img_path in image_paths:
         img_name = os.path.basename(img_path)
-        dest_path = f"{folder_path}{img_name}"  # `images/{id}/image1.png`
+        dest_path = f"{folder_path}{img_name}"
+        
         with open(img_path, "rb") as img_file:
             supabase.storage.from_("images").upload(dest_path, img_file)
-        os.remove(img_path)  # Clean up local image after upload
-    
-    return f"https://{SUPABASE_URL}/storage/v1/object/public/{folder_path}"
+        
+        public_url = supabase.storage.from_("images").get_public_url(dest_path)
+        public_urls.append(public_url)
+
+        os.remove(img_path)  # Cleanup local image
+
+    return public_urls  # Return list of URLs
 
 @app.post("/upload/")
 async def upload_file(file: UploadFile = File(...)):
     """
     Uploads a PDF/PPTX file, converts it to images,
-    and saves them inside `images/{id}/` folder in Supabase.
-    Returns the public folder URL.
+    and returns a list of public image URLs.
     """
     if file.content_type not in ["application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation"]:
         raise HTTPException(status_code=400, detail="Unsupported file type")
     
     file_path = save_temp_file(file)
-    folder_id = str(uuid4())  # Generate a unique folder ID
+    folder_id = str(uuid4())  
     
     if file.content_type == "application/pdf":
         image_paths = convert_pdf_to_images(file_path)
     else:
         image_paths = convert_pptx_to_images(file_path)
     
-    folder_url = upload_images_to_supabase(image_paths, folder_id)
-    
-    logging.info(f"File {file.filename} processed successfully. Folder URL: {folder_url}")
-    
-    return JSONResponse(content={"folder_url": folder_url})
+    public_urls = upload_images_to_supabase(image_paths, folder_id)
+
+    logging.info(f"File {file.filename} processed successfully. Uploaded images: {public_urls}")
+
+    return JSONResponse(content={"image_urls": public_urls})
