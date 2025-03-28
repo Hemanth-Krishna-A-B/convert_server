@@ -3,9 +3,9 @@ FROM python:3.9
 
 # Install system dependencies for PDF & PPTX conversion
 RUN apt-get update && apt-get install -y \
-    poppler-utils \       # Required for pdf2image
-    libreoffice \         # Required for PPTX to PDF conversion
-    unoconv               # Alternative for LibreOffice CLI
+    poppler-utils \
+    libreoffice \
+    unoconv
 
 # Set working directory
 WORKDIR /app
