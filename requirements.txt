@@ -6,4 +6,4 @@ pillow
 python-pptx
 supabase
 python-multipart
-
+pptx2pdf
