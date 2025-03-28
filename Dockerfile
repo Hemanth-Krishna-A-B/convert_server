@@ -1,9 +1,11 @@
 # Use an official Python image as base
 FROM python:3.9
 
-# Install Poppler for pdf2image
+# Install system dependencies for PDF & PPTX conversion
 RUN apt-get update && apt-get install -y \
-    poppler-utils
+    poppler-utils \       # Required for pdf2image
+    libreoffice \         # Required for PPTX to PDF conversion
+    unoconv               # Alternative for LibreOffice CLI
 
 # Set working directory
 WORKDIR /app
@@ -11,7 +13,7 @@ WORKDIR /app
 # Copy dependencies
 COPY requirements.txt .
 
-# Install dependencies
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
@@ -22,4 +24,3 @@ EXPOSE 8000
 
 # Run the FastAPI application
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
-
